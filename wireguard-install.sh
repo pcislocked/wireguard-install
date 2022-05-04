@@ -140,7 +140,7 @@ new_client_setup () {
 	# Given a list of the assigned internal IPv4 addresses, obtain the lowest still
 	# available octet. Important to start looking at 2, because 1 is our gateway.
 	octet=2
-	while grep AllowedIPs /etc/wireguard/wg0.conf | cut -d "." -f 4 | cut -d "/" -f 1 | grep -q "$octet"; do
+	while grep AllowedIPs /etc/wireguard/wg1.conf | cut -d "." -f 4 | cut -d "/" -f 1 | grep -q "$octet"; do
 		(( octet++ ))
 	done
 	# Don't break the WireGuard configuration in case the address space is full
@@ -151,31 +151,31 @@ new_client_setup () {
 	key=$(wg genkey)
 	psk=$(wg genpsk)
 	# Configure client in the server
-	cat << EOF >> /etc/wireguard/wg0.conf
+	cat << EOF >> /etc/wireguard/wg1.conf
 # BEGIN_PEER $client
 [Peer]
 PublicKey = $(wg pubkey <<< $key)
 PresharedKey = $psk
-AllowedIPs = 10.7.0.$octet/32$(grep -q 'fddd:2c4:2c4:2c4::1' /etc/wireguard/wg0.conf && echo ", fddd:2c4:2c4:2c4::$octet/128")
+AllowedIPs = 10.7.0.$octet/32$(grep -q 'fddd:2c4:2c4:2c4::1' /etc/wireguard/wg1.conf && echo ", fddd:2c4:2c4:2c4::$octet/128")
 # END_PEER $client
 EOF
 	# Create client configuration
 	cat << EOF > ~/"$client".conf
 [Interface]
-Address = 10.7.0.$octet/24$(grep -q 'fddd:2c4:2c4:2c4::1' /etc/wireguard/wg0.conf && echo ", fddd:2c4:2c4:2c4::$octet/64")
+Address = 10.7.0.$octet/24$(grep -q 'fddd:2c4:2c4:2c4::1' /etc/wireguard/wg1.conf && echo ", fddd:2c4:2c4:2c4::$octet/64")
 DNS = $dns
 PrivateKey = $key
 
 [Peer]
-PublicKey = $(grep PrivateKey /etc/wireguard/wg0.conf | cut -d " " -f 3 | wg pubkey)
+PublicKey = $(grep PrivateKey /etc/wireguard/wg1.conf | cut -d " " -f 3 | wg pubkey)
 PresharedKey = $psk
 AllowedIPs = 0.0.0.0/0, ::/0
-Endpoint = $(grep '^# ENDPOINT' /etc/wireguard/wg0.conf | cut -d " " -f 3):$(grep ListenPort /etc/wireguard/wg0.conf | cut -d " " -f 3)
+Endpoint = $(grep '^# ENDPOINT' /etc/wireguard/wg1.conf | cut -d " " -f 3):$(grep ListenPort /etc/wireguard/wg1.conf | cut -d " " -f 3)
 PersistentKeepalive = 25
 EOF
 }
 
-if [[ ! -e /etc/wireguard/wg0.conf ]]; then
+if [[ ! -e /etc/wireguard/wg1.conf ]]; then
 	# Detect some Debian minimal setups where neither wget nor curl are installed
 	if ! hash wget 2>/dev/null && ! hash curl 2>/dev/null; then
 		echo "Wget is required to use this installer."
@@ -367,10 +367,10 @@ if [[ ! -e /etc/wireguard/wg0.conf ]]; then
 		# Don't use this service elsewhere without permission! Contact me before you do!
 		{ wget -qO- https://wg.nyr.be/1/latest/download 2>/dev/null || curl -sL https://wg.nyr.be/1/latest/download ; } | tar xz -C /usr/local/sbin/ --wildcards 'boringtun-*/boringtun' --strip-components 1
 		# Configure wg-quick to use BoringTun
-		mkdir /etc/systemd/system/wg-quick@wg0.service.d/ 2>/dev/null
+		mkdir /etc/systemd/system/wg-quick@wg1.service.d/ 2>/dev/null
 		echo "[Service]
 Environment=WG_QUICK_USERSPACE_IMPLEMENTATION=boringtun
-Environment=WG_SUDO=1" > /etc/systemd/system/wg-quick@wg0.service.d/boringtun.conf
+Environment=WG_SUDO=1" > /etc/systemd/system/wg-quick@wg1.service.d/boringtun.conf
 		if [[ -n "$cron" ]] && [[ "$os" == "centos" || "$os" == "fedora" ]]; then
 			systemctl enable --now crond.service
 		fi
@@ -379,8 +379,8 @@ Environment=WG_SUDO=1" > /etc/systemd/system/wg-quick@wg0.service.d/boringtun.co
 	if [[ "$firewall" == "firewalld" ]]; then
 		systemctl enable --now firewalld.service
 	fi
-	# Generate wg0.conf
-	cat << EOF > /etc/wireguard/wg0.conf
+	# Generate wg1.conf
+	cat << EOF > /etc/wireguard/wg1.conf
 # Do not alter the commented lines
 # They are used by wireguard-install
 # ENDPOINT $([[ -n "$public_ip" ]] && echo "$public_ip" || echo "$ip")
@@ -391,7 +391,7 @@ PrivateKey = $(wg genkey)
 ListenPort = $port
 
 EOF
-	chmod 600 /etc/wireguard/wg0.conf
+	chmod 600 /etc/wireguard/wg1.conf
 	# Enable net.ipv4.ip_forward for the system
 	echo 'net.ipv4.ip_forward=1' > /etc/sysctl.d/99-wireguard-forward.conf
 	# Enable without waiting for a reboot or service restart
@@ -456,7 +456,7 @@ WantedBy=multi-user.target" >> /etc/systemd/system/wg-iptables.service
 	# Generates the custom client.conf
 	new_client_setup
 	# Enable and start the wg-quick service
-	systemctl enable --now wg-quick@wg0.service
+	systemctl enable --now wg-quick@wg1.service
 	# Set up automatic updates for BoringTun if the user wanted to
 	if [[ "$boringtun_updates" =~ ^[yY]$ ]]; then
 		# Deploy upgrade script
@@ -474,10 +474,10 @@ if [[ "$current" != "$latest" ]]; then
 	xdir=$(mktemp -d)
 	# If download and extraction are successful, upgrade the boringtun binary
 	if { wget -qO- "$download" 2>/dev/null || curl -sL "$download" ; } | tar xz -C "$xdir" --wildcards "boringtun-*/boringtun" --strip-components 1; then
-		systemctl stop wg-quick@wg0.service
+		systemctl stop wg-quick@wg1.service
 		rm -f /usr/local/sbin/boringtun
 		mv "$xdir"/boringtun /usr/local/sbin/boringtun
-		systemctl start wg-quick@wg0.service
+		systemctl start wg-quick@wg1.service
 		echo "Succesfully updated to $(/usr/local/sbin/boringtun -V)"
 	else
 		echo "boringtun update failed"
@@ -534,7 +534,7 @@ else
 			read -p "Name: " unsanitized_client
 			# Allow a limited set of characters to avoid conflicts
 			client=$(sed 's/[^0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_-]/_/g' <<< "$unsanitized_client")
-			while [[ -z "$client" ]] || grep -q "^# BEGIN_PEER $client$" /etc/wireguard/wg0.conf; do
+			while [[ -z "$client" ]] || grep -q "^# BEGIN_PEER $client$" /etc/wireguard/wg1.conf; do
 				echo "$client: invalid name."
 				read -p "Name: " unsanitized_client
 				client=$(sed 's/[^0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_-]/_/g' <<< "$unsanitized_client")
@@ -543,7 +543,7 @@ else
 			new_client_dns
 			new_client_setup
 			# Append new client configuration to the WireGuard interface
-			wg addconf wg0 <(sed -n "/^# BEGIN_PEER $client/,/^# END_PEER $client/p" /etc/wireguard/wg0.conf)
+			wg addconf wg1 <(sed -n "/^# BEGIN_PEER $client/,/^# END_PEER $client/p" /etc/wireguard/wg1.conf)
 			echo
 			qrencode -t UTF8 < ~/"$client.conf"
 			echo -e '\xE2\x86\x91 That is a QR code containing your client configuration.'
@@ -554,7 +554,7 @@ else
 		2)
 			# This option could be documented a bit better and maybe even be simplified
 			# ...but what can I say, I want some sleep too
-			number_of_clients=$(grep -c '^# BEGIN_PEER' /etc/wireguard/wg0.conf)
+			number_of_clients=$(grep -c '^# BEGIN_PEER' /etc/wireguard/wg1.conf)
 			if [[ "$number_of_clients" = 0 ]]; then
 				echo
 				echo "There are no existing clients!"
@@ -562,13 +562,13 @@ else
 			fi
 			echo
 			echo "Select the client to remove:"
-			grep '^# BEGIN_PEER' /etc/wireguard/wg0.conf | cut -d ' ' -f 3 | nl -s ') '
+			grep '^# BEGIN_PEER' /etc/wireguard/wg1.conf | cut -d ' ' -f 3 | nl -s ') '
 			read -p "Client: " client_number
 			until [[ "$client_number" =~ ^[0-9]+$ && "$client_number" -le "$number_of_clients" ]]; do
 				echo "$client_number: invalid selection."
 				read -p "Client: " client_number
 			done
-			client=$(grep '^# BEGIN_PEER' /etc/wireguard/wg0.conf | cut -d ' ' -f 3 | sed -n "$client_number"p)
+			client=$(grep '^# BEGIN_PEER' /etc/wireguard/wg1.conf | cut -d ' ' -f 3 | sed -n "$client_number"p)
 			echo
 			read -p "Confirm $client removal? [y/N]: " remove
 			until [[ "$remove" =~ ^[yYnN]*$ ]]; do
@@ -578,9 +578,9 @@ else
 			if [[ "$remove" =~ ^[yY]$ ]]; then
 				# The following is the right way to avoid disrupting other active connections:
 				# Remove from the live interface
-				wg set wg0 peer "$(sed -n "/^# BEGIN_PEER $client$/,\$p" /etc/wireguard/wg0.conf | grep -m 1 PublicKey | cut -d " " -f 3)" remove
+				wg set wg1 peer "$(sed -n "/^# BEGIN_PEER $client$/,\$p" /etc/wireguard/wg1.conf | grep -m 1 PublicKey | cut -d " " -f 3)" remove
 				# Remove from the configuration file
-				sed -i "/^# BEGIN_PEER $client$/,/^# END_PEER $client$/d" /etc/wireguard/wg0.conf
+				sed -i "/^# BEGIN_PEER $client$/,/^# END_PEER $client$/d" /etc/wireguard/wg1.conf
 				echo
 				echo "$client removed!"
 			else
@@ -597,7 +597,7 @@ else
 				read -p "Confirm WireGuard removal? [y/N]: " remove
 			done
 			if [[ "$remove" =~ ^[yY]$ ]]; then
-				port=$(grep '^ListenPort' /etc/wireguard/wg0.conf | cut -d " " -f 3)
+				port=$(grep '^ListenPort' /etc/wireguard/wg1.conf | cut -d " " -f 3)
 				if systemctl is-active --quiet firewalld.service; then
 					ip=$(firewall-cmd --direct --get-rules ipv4 nat POSTROUTING | grep '\-s 10.7.0.0/24 '"'"'!'"'"' -d 10.7.0.0/24' | grep -oE '[^ ]+$')
 					# Using both permanent and not permanent rules to avoid a firewalld reload.
@@ -607,7 +607,7 @@ else
 					firewall-cmd --permanent --zone=trusted --remove-source=10.7.0.0/24
 					firewall-cmd --direct --remove-rule ipv4 nat POSTROUTING 0 -s 10.7.0.0/24 ! -d 10.7.0.0/24 -j SNAT --to "$ip"
 					firewall-cmd --permanent --direct --remove-rule ipv4 nat POSTROUTING 0 -s 10.7.0.0/24 ! -d 10.7.0.0/24 -j SNAT --to "$ip"
-					if grep -qs 'fddd:2c4:2c4:2c4::1/64' /etc/wireguard/wg0.conf; then
+					if grep -qs 'fddd:2c4:2c4:2c4::1/64' /etc/wireguard/wg1.conf; then
 						ip6=$(firewall-cmd --direct --get-rules ipv6 nat POSTROUTING | grep '\-s fddd:2c4:2c4:2c4::/64 '"'"'!'"'"' -d fddd:2c4:2c4:2c4::/64' | grep -oE '[^ ]+$')
 						firewall-cmd --zone=trusted --remove-source=fddd:2c4:2c4:2c4::/64
 						firewall-cmd --permanent --zone=trusted --remove-source=fddd:2c4:2c4:2c4::/64
@@ -618,8 +618,8 @@ else
 					systemctl disable --now wg-iptables.service
 					rm -f /etc/systemd/system/wg-iptables.service
 				fi
-				systemctl disable --now wg-quick@wg0.service
-				rm -f /etc/systemd/system/wg-quick@wg0.service.d/boringtun.conf
+				systemctl disable --now wg-quick@wg1.service
+				rm -f /etc/systemd/system/wg-quick@wg1.service.d/boringtun.conf
 				rm -f /etc/sysctl.d/99-wireguard-forward.conf
 				# Different packages were installed if the system was containerized or not
 				if [[ ! "$is_container" -eq 0 ]]; then
